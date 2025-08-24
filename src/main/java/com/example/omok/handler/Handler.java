@@ -1,29 +1,31 @@
 package com.example.omok.handler;
 
 import com.example.omok.deserialize.Deserialization;
-import com.example.omok.omok.Omok;
+import com.example.omok.Packet.Packet;
+import com.example.omok.player.Player;
+import com.example.omok.room.Room;
+import com.example.omok.room.RoomStatus;
 import com.example.omok.serialize.Serialization;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.util.ArrayList;
 import java.util.List;
 
 public class Handler implements Runnable {
     private final Socket client;
     private final String userId;
+    private final int playerColor;
+    private final Room room;
     private final Deserialization deserialization;
     private final Serialization serialization;
-    private final List<Socket> players;
-    private final int playColor;
 
-    public Handler(Socket clientSocket, String userId, List<Socket> players, int playColor) {
+    public Handler(Socket clientSocket, String userId, int playerColor, Room room) {
         this.client = clientSocket;
         this.userId = userId;
-        this.players = players;
-        this.playColor = playColor;
+        this.playerColor = playerColor;
+        this.room = room;
         this.deserialization = new Deserialization();
         this.serialization = new Serialization();
     }
@@ -34,66 +36,88 @@ public class Handler implements Runnable {
             InputStream inputStream = client.getInputStream();
             OutputStream outputStream = client.getOutputStream();
 
-            Omok omok = new Omok();
-            omok.setUserId(this.userId);
-            omok.setPlayerColor(playColor);
-            byte[] bytes = serialization.serializeObjectToByte(omok);
-            outputStream.write(bytes);
+            Player selfPlayer = new Player(this.userId, this.playerColor, this.client);
+            outputStream.write(serialization.serializePlayer(selfPlayer));
             outputStream.flush();
-            System.out.println("클라이언트에게 " + this.userId + "' 전송 완료.");
+            System.out.println("클라이언트에게 " + this.userId + " 전송 완료.");
 
-            byte[] buffer = new byte[1024];
+            if (room.getStatus() == RoomStatus.READY) {
+                System.out.println("게임 시작 준비. 양측 플레이어에게 userId 전송");
+                for (Player player : room.getPlayers()) {
+                    Player opponentPlayer = room.getPlayers().stream()
+                            .filter(p -> !p.getUserId().equals(player.getUserId()))
+                            .findFirst().orElse(null);
+                    if(opponentPlayer != null) {
+                        byte[] opponentPlayerBytes = serialization.serializePlayer(opponentPlayer);
+                        player.getSocket().getOutputStream().write(opponentPlayerBytes);
+                        player.getSocket().getOutputStream().flush();
+                    }
+                }
+                Packet readyPacket = new Packet(RoomStatus.READY.getRoomStatusCode(), 0, 0, -1);
+                broadcast(serialization.serializePacket(readyPacket));
+            }
+
 
             while (true) {
-                int bytesRead = inputStream.read(buffer);
+                byte[] packetBytes = new byte[16];
+                int bytesRead = inputStream.read(packetBytes);
+                if (bytesRead == -1) break;
 
-                if (bytesRead == -1) {
-                    System.out.println("클라이언트 연결 종료.");
-                    break;
-                }
+                Packet receivedPacket = deserialization.deserializePacket(packetBytes);
+                RoomStatus requestType = RoomStatus.fromCode(receivedPacket.getRoomStatusCode());
 
-                if (bytesRead > 0) {
-                    byte[] receivedBytes = new byte[bytesRead];
-                    System.arraycopy(buffer, 0, receivedBytes, 0, bytesRead);
-
-                    try {
-                        Omok receivedOmok = deserialization.deserializeByte2Object(receivedBytes);
-                        System.out.println(
-                                "수신된 Omok :  UserId: '" + receivedOmok.getUserId()
-                                        + "', RoomId: " + receivedOmok.getRoomId()
-                                        + ", X: " + receivedOmok.getX()
-                                        + ", Y: " + receivedOmok.getY()
-                                        + ", color: " + receivedOmok.getPlayerColor()
-                        );
-
-
-                        byte[] responseBytes = serialization.serializeObjectToByte(receivedOmok);
-                        List<Socket> playersCopy = new ArrayList<>(players);
-                        for (Socket player : playersCopy) {
-                            try {
-                                OutputStream playerOutputStream = player.getOutputStream();
-                                playerOutputStream.write(responseBytes);
-                                System.out.println("메세지 전송 완료.");
-                                playerOutputStream.flush();
-                            } catch (IOException e) {
-                                System.err.println("메시지 전송 실패");
+                switch (requestType) {
+                    case PALYER_READY:
+                        if(room.getStatus() == RoomStatus.READY) {
+                            if(room.setPlayerReady(this.userId)) {
+                                room.startGame(RoomStatus.START.getRoomStatusCode());
+                                Packet startPacket = new Packet(RoomStatus.START.getRoomStatusCode(), 0, 0, -1);
+                                broadcast(serialization.serializePacket(startPacket));
+                            }
+                        } else if(room.getStatus() == RoomStatus.END) {
+                            if(room.getStatus() == RoomStatus.END) {
+                                room.resetNewGame(RoomStatus.READY.getRoomStatusCode());
                             }
                         }
+                        break;
+                    case PLACE_STONE:
+                        if(room.getStatus() == RoomStatus.START) {
+                            room.placeStone(receivedPacket);
+                            broadcast(serialization.serializePacket(receivedPacket));
 
-                    } catch (Error e) {
-                        System.err.println(e.getMessage());
-                    }
+                            if(room.checkWinPlayer(receivedPacket)) {
+                                // 승패 정보를 담은 END 패킷 전송
+                                Packet endPacket = new Packet(RoomStatus.END.getRoomStatusCode(),
+                                        receivedPacket.getX(), receivedPacket.getY(), receivedPacket.getPlayerColor());
+                                broadcast(serialization.serializePacket(endPacket));
+
+                                room.endGame(RoomStatus.END.getRoomStatusCode());
+                            }
+                        }
+                        break;
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
             try {
+                room.removePlayer(this.client);
                 client.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
             System.out.println("연결 종료");
+        }
+    }
+
+    private void broadcast(byte[] message) {
+        for (Player player : room.getPlayers()) {
+            try {
+                player.getSocket().getOutputStream().write(message);
+                player.getSocket().getOutputStream().flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 }

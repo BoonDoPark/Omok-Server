@@ -1,47 +1,31 @@
 package com.example.omok.deserialize;
 
-import com.example.omok.omok.Omok;
+import com.example.omok.Packet.Packet;
+import com.example.omok.player.Player;
 
 import java.nio.charset.StandardCharsets;
 
 public class Deserialization {
+    public Packet deserializePacket(byte[] data) {
+        Packet packet = new Packet();
+        packet.setRoomStatusCode(bytes2Int(data, 0));
+        packet.setX(bytes2Int(data, 4));
+        packet.setY(bytes2Int(data, 8));
+        packet.setPlayerColor(bytes2Int(data, 12));
 
-    public Omok deserializeByte2Object(byte[] byteArray) {
-        int offset = 0;
+        return packet;
+    }
 
-        int userIdLength = byte2Int(byteArray, offset);
-        offset += 4;
-
-        byte[] userIdBytes = new byte[userIdLength];
-
-        System.arraycopy(byteArray, offset, userIdBytes, 0, userIdLength);
-
-        String userId = new String(userIdBytes, StandardCharsets.UTF_8);
-        offset += userIdLength;
-
-        int roomId = byte2Int(byteArray, offset);
-        offset += 4;
-
-        int x = byte2Int(byteArray, offset);
-        offset += 4;
-
-        int y = byte2Int(byteArray, offset);
-        offset += 4;
-
-        int playerColor = byte2Int(byteArray, offset);
-
-        Omok omok = new Omok();
-        omok.setUserId(userId);
-        omok.setRoomId(roomId);
-        omok.setX(x);
-        omok.setY(y);
-        omok.setPlayerColor(playerColor);
-
-        return omok;
+    public Player deserializePlayer(byte[] data) {
+        int userIdLength = bytes2Int(data, 0);
+        // byteArray = data, offset=4, length=userIdLength, charset=StandardCharsets.UTF_8
+        String userId = new String(data, 4, userIdLength, StandardCharsets.UTF_8);
+        int playerColor = bytes2Int(data, 4 + userIdLength);
+        return new Player(userId, playerColor, null);
     }
 
     // 빅엔디안
-    private Integer byte2Int(byte[] byteArray, int offset) {
+    private Integer bytes2Int(byte[] byteArray, int offset) {
         // 바이트 배열을 숫자로 변환
         return ((byteArray[offset]   & 0xFF) << 24) |
                 ((byteArray[offset+1] & 0xFF) << 16) |
