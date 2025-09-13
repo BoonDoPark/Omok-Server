@@ -2,6 +2,7 @@ package com.example.omok.socket;
 
 
 import com.example.omok.handler.Handler;
+import com.example.omok.player.Player;
 import com.example.omok.room.Room;
 import com.example.omok.room.RoomStatus;
 import org.springframework.stereotype.Component;
@@ -10,13 +11,13 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 
 @Component
 public class SocketServer {
-    private final List<Room> rooms = new ArrayList<>();
+    private final List<Room> rooms = Collections.synchronizedList(new ArrayList<>());
 
     public void start() {
         try {
@@ -24,15 +25,14 @@ public class SocketServer {
             System.out.println("Socket 연결 중...");
 
             while (true) {
-                Socket client = server.accept();
-                String userId = UUID.randomUUID().toString();
+                Socket socket = server.accept();
                 System.out.println("socket 연결");
 
                 Room room = findOrCreateRoom();
-                int playerColor = room.addPlayer(client, userId);
+                Player player = new Player(0, socket, false);
+                room.addPlayer(player);
 
-                Handler handler = new Handler(client, userId, playerColor, room);
-
+                Handler handler = new Handler(player, room);
                 new Thread(handler).start();
             }
         } catch (IOException e) {

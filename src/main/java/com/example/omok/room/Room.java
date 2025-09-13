@@ -1,81 +1,143 @@
 package com.example.omok.room;
 
 import com.example.omok.Packet.Packet;
+import com.example.omok.Packet.PacketType;
 import com.example.omok.player.Player;
+import com.example.omok.serialize.Serialization;
 
-import java.net.Socket;
+import java.io.IOException;
 import java.util.*;
 
 public class Room {
-    private final Integer roomId;
-    private RoomStatus status;
+    private final String roomId;
     private final List<Player> players;
-    private static Integer nextRoomId = 1;
-    private int[][] OMOK_BOARD;
-    private final Set<String> readyPlayers = new HashSet<>();
+    private Integer currentTurnColor;
+    private int[][] board;
+
+    private final Serialization serialization;
+    private RoomStatus status;
+
 
     public Room() {
-        this.roomId = nextRoomId++;
-        this.players = new ArrayList<>();
-        this.status = RoomStatus.WAIT;
-        this.OMOK_BOARD = new int[19][19];
-        for (int[] row : this.OMOK_BOARD) {
+        this.roomId = UUID.randomUUID().toString();
+        this.players = Collections.synchronizedList(new ArrayList<>());
+        this.setStatus(RoomStatus.WAIT);
+        this.board = new int[19][19];
+        this.serialization = new Serialization();
+    }
+
+    private void initializeBoard() {
+        this.currentTurnColor = -1;
+        for (int[] row : this.board) {
             Arrays.fill(row, -1);
         }
     }
+    
+    public boolean isAllPlayersReady() {
+        return this.players.stream().filter(
+                Player::getIsReady
+        ).count() >= 2;
+    }
 
-    public int addPlayer(Socket socket, String userId) {
+    public boolean isRoomReadyToGame() {
+        return this.status == RoomStatus.WAIT && this.isAllPlayersReady();
+    }
+    
+    public void sendOpponentPlayerIds() throws IOException {
+        if (this.status == RoomStatus.READY) {
+            for (Player player : this.getPlayers()) {
+                Player opponentPlayer = this.getPlayers().stream()
+                        .filter(p -> !p.getUserId().equals(player.getUserId()))
+                        .findFirst().orElse(null);
+                if(opponentPlayer != null) {
+                    byte[] opponentPlayerBytes = serialization.serializePacket(
+                            new Packet(
+                                  PacketType.READY,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  opponentPlayer.getUserId()
+                            )
+                    );
+                    player.getSocket().getOutputStream().write(opponentPlayerBytes);
+                    player.getSocket().getOutputStream().flush();
+                }
+            }
+        }
+    }
+
+    public void broadcast(byte[] message) {
+        for (Player player : this.getPlayers()) {
+            try {
+                player.getSocket().getOutputStream().write(message);
+                player.getSocket().getOutputStream().flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void addPlayer(Player player) throws IOException {
         int playerColor = players.size();
-        players.add(new Player(userId, playerColor, socket));
+        player.setPlayerColor(playerColor);
+        player.getSocket().getOutputStream().flush();
+        players.add(player);
+        this.sendOpponentPlayerIds();
+    }
 
-        if (players.size() == 2) {
-            this.status = RoomStatus.READY;
-            System.out.println("방 " + roomId + " 게임 시작 준비");
+    public void removePlayer(Player player) throws IOException {
+        player.getSocket().close();
+        players.remove(player);
+    }
+
+    public void startGame() {
+        if (this.status != RoomStatus.READY) {
+            return;
         }
-        return playerColor;
+        this.initializeBoard();
+        this.broadcast(
+                serialization.serializePacket(
+                        new Packet(
+                                PacketType.GAMESTART, // 얘만 봄
+                                0,
+                                0,
+                                0,
+                                0,
+                                0,
+                                ""
+                        )
+                )
+        );
+        this.setStatus(RoomStatus.IN_PROGRESS);
     }
 
-    public boolean setPlayerReady(String userId) {
-        readyPlayers.add(userId);
-        return readyPlayers.size() == 2;
-    }
-
-    public void removePlayer(Socket socket) {
-        players.removeIf(player -> player.getSocket().equals(socket));
-        if (players.isEmpty()) {
-            endGame(RoomStatus.END.getRoomStatusCode());
-            System.out.println("방 " + roomId + " 게임 종료");
+    public void endGame() {
+        if (this.status != RoomStatus.IN_PROGRESS) {
+            return;
         }
+        this.setStatus(RoomStatus.FINISHED);
     }
-
-    public void startGame(Integer statusCode) {
-        if(statusCode.equals(RoomStatus.START.getRoomStatusCode())) {
-            this.status = RoomStatus.START;
-            this.OMOK_BOARD = new int[19][19];
-            for (int[] row : this.OMOK_BOARD) {
-                Arrays.fill(row, -1);
-            }
+    
+    public void initializeGame() throws IOException {
+        if (this.status != RoomStatus.FINISHED) {
+            return;
         }
-
-    }
-
-    public void endGame(Integer statusCode) {
-        if(statusCode.equals(RoomStatus.END.getRoomStatusCode())) {
-            this.status = RoomStatus.END;
-            for (int[] row : this.OMOK_BOARD) {
-                Arrays.fill(row, -1);
-            }
-            System.out.println("방 " + roomId + " 게임 종료 (END)");
+        this.initializeBoard();
+        for(Player player : this.players) {
+            player.setIsReady(false);
         }
+        this.setStatus(RoomStatus.WAIT);
     }
 
-    public void resetNewGame(Integer statusCode) {
-        if(statusCode.equals(RoomStatus.READY.getRoomStatusCode())) {
-            this.status = RoomStatus.READY;
-//            this.readyPlayers.clear();
-        }
+    public boolean isPlayerTurn(int playerColor) {
+        return currentTurnColor == playerColor;
     }
 
+    public void changeTurn(int playColor) {
+        this.currentTurnColor = playColor;
+    }
 
     public Boolean checkWinPlayer(Packet omok) {
         int x = omok.getX();
@@ -107,7 +169,7 @@ public class Room {
                 && currentX < 19
                 && currentY >= 0
                 && currentY < 19
-                && OMOK_BOARD[currentY][currentX] == color
+                && board[currentY][currentX] == color
         ) {
             count++;
             currentX += dx;
@@ -116,11 +178,39 @@ public class Room {
         return count;
     }
 
-    public void placeStone(Packet omok) {
-        OMOK_BOARD[omok.getY()][omok.getX()] = omok.getPlayerColor();
+    public void placeStone(Packet coordinatePacket) {
+        if (this.status == RoomStatus.IN_PROGRESS) {
+            return;
+        }
+        if (this.isPlayerTurn(coordinatePacket.getPlayerColor())) {
+            System.out.println("현재 플레이어의 차례가 아닙니다.");
+            return;
+        }
+        board[coordinatePacket.getY()][coordinatePacket.getX()] = coordinatePacket.getPlayerColor();
+        this.changeTurn(coordinatePacket.getPlayerColor());
+        this.broadcast(
+                serialization.serializePacket(
+                        coordinatePacket
+                )
+        );
+        if (this.checkWinPlayer(coordinatePacket)) {
+            this.broadcast(
+                    serialization.serializePacket(
+                        new Packet(
+                               PacketType.DISCRIMINATE, // 얘만 봄
+                                0,
+                                coordinatePacket.getPlayerColor(), // 얘만 봄
+                                0,
+                                0,
+                                0,
+                                ""
+                        )
+                    )
+            );
+        }
     }
 
-    public Integer getRoomId() {
+    public String getRoomId() {
         return roomId;
     }
 

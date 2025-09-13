@@ -3,14 +3,11 @@ package com.example.omok.room;
 public enum RoomStatus {
     WAIT(0),
     READY(1),
-    START(2),
-    END(3),
-    PALYER_READY(11),
-    PLACE_STONE(12),
+    IN_PROGRESS(2),
+    FINISHED(3),
 
     CREATE_ROOM(21),
-    JOIN_ROOM(22),
-    ;
+    JOIN_ROOM(22);
 
     private final Integer roomStatusCode;
 

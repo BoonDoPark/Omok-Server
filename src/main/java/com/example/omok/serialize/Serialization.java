@@ -4,38 +4,47 @@ import com.example.omok.Packet.Packet;
 import com.example.omok.player.Player;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class Serialization {
     private final Integer INTEGER_BYTE_SIZE = 4;
+    private final Integer STRING_BYTE_SIZE = 32;
 
     public byte[] serializePacket(Packet packet) {
-        byte[] byteArray = new byte[4 * INTEGER_BYTE_SIZE];
+        byte[] byteArray = new byte[
+                6 * INTEGER_BYTE_SIZE + packet.getPlayerId().length()
+                + STRING_BYTE_SIZE
+        ];
 
-        // byteArray = data, srcPos=BytestartPoint, dest=byteArray, destPos=ByteArrayStartPoint, offset=4, length=ByteLength
-        // deep copy
-        System.arraycopy(int2Bytes(packet.getRoomStatusCode()), 0, byteArray, 0, INTEGER_BYTE_SIZE);
-        System.arraycopy(int2Bytes(packet.getX()), 0, byteArray, 4, INTEGER_BYTE_SIZE);
-        System.arraycopy(int2Bytes(packet.getY()), 0, byteArray, 8, INTEGER_BYTE_SIZE);
-        System.arraycopy(int2Bytes(packet.getPlayerColor()), 0, byteArray, 12, INTEGER_BYTE_SIZE);
+        List<byte[]> byteElements = new ArrayList<>();
+        byteElements.add(int2Bytes(packet.getPacketType().getPacketType()));
+        byteElements.add(int2Bytes(packet.getIsPlayerReady()));
+        byteElements.add(int2Bytes(packet.getWhoWon()));
+        byteElements.add(int2Bytes(packet.getX()));
+        byteElements.add(int2Bytes(packet.getY()));
+        byteElements.add(int2Bytes(packet.getPlayerColor()));
+
+        for (int i = 0; i < byteElements.size(); i++) {
+            System.arraycopy(
+                    byteElements.get(i),
+                    0,
+                    byteArray,
+                    i*INTEGER_BYTE_SIZE,
+                    INTEGER_BYTE_SIZE
+            );
+        }
+        System.arraycopy(
+                packet.getPlayerId().getBytes(),
+                0,
+                byteArray,
+                byteElements.size()*INTEGER_BYTE_SIZE+STRING_BYTE_SIZE,
+                STRING_BYTE_SIZE
+        );
+
+
         return byteArray;
-    }
-
-    public byte[] serializePlayer(Player player) {
-        byte[] userIdBytes = player.getUserId().getBytes(StandardCharsets.UTF_8);
-        byte[] userIdLengthBytes = int2Bytes(userIdBytes.length);
-        byte[] playerColorBytes = int2Bytes(player.getPlayerColor());
-
-        int totalSize = 4 + userIdBytes.length + 4;
-        byte[] data = new byte[totalSize];
-
-        int offset = 0;
-        System.arraycopy(userIdLengthBytes, 0, data, offset, 4);
-        offset += 4;
-        System.arraycopy(userIdBytes, 0, data, offset, userIdBytes.length);
-        offset += userIdBytes.length;
-        System.arraycopy(playerColorBytes, 0, data, offset, 4);
-
-        return data;
     }
 
     public byte[] serializeStatus(Integer statusCode) {
