@@ -1,7 +1,8 @@
-package com.example.omok.Packet;
+package com.example.omok.packet;
 
 
 public class Packet {
+    // TODO: 해당 패킷 분리 (필드에 값이 너무 많음
     private PacketType packetType;
     private final int isPlayerReady;  // 클라이언트에서 게임 준비 눌렀을 때
     private final int whoWon; // 누가 이겼는지
@@ -11,7 +12,7 @@ public class Packet {
     private String playerId;
 
     public Packet() {
-        this.packetType = PacketType.READY;
+        this.packetType = PacketType.PLAYER_READY;
         this.isPlayerReady = 0;
         this.whoWon = 0;
         this.x = 0;
