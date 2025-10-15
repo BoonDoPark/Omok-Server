@@ -1,7 +1,7 @@
 package com.example.omok.player;
 
-import com.example.omok.Packet.Packet;
-import com.example.omok.Packet.PacketType;
+import com.example.omok.packet.Packet;
+import com.example.omok.packet.PacketType;
 import com.example.omok.serialize.Serialization;
 
 import java.io.IOException;
@@ -39,7 +39,7 @@ public class Player {
         this.playerColor = playerColor;
         this.notify(
                 new Packet(
-                        PacketType.READY,
+                        PacketType.PLAYER_READY,
                         0,
                         0,
                         0,
@@ -59,15 +59,15 @@ public class Player {
     }
 
     public void setIsReady(boolean ready) throws IOException {
-        isReady = ready;
+        this.isReady = ready;
         this.notify(
                 new Packet(
-                        PacketType.READY,
+                        PacketType.PLAYER_READY,
                         1, // 얘만 봄
                         0,
                         0,
                         0,
-                        0,
+                        playerColor,
                         ""
                 )
         );

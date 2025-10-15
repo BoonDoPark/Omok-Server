@@ -1,16 +1,19 @@
 package com.example.omok.deserialize;
 
-import com.example.omok.Packet.Packet;
-import com.example.omok.player.Player;
-
-import java.nio.charset.StandardCharsets;
+import com.example.omok.packet.Packet;
+import com.example.omok.packet.PacketType;
 
 public class Deserialization {
     public Packet deserializePacket(byte[] data) {
-        Packet packet = new Packet();
-        packet.setX(bytes2Int(data, 4));
-        packet.setY(bytes2Int(data, 8));
-        packet.setPlayerColor(bytes2Int(data, 12));
+        Packet packet = new Packet(
+                PacketType.fromPacketType(bytes2Int(data, 0)),
+                bytes2Int(data, 4),
+                bytes2Int(data, 8),
+                bytes2Int(data, 12),
+                bytes2Int(data, 16),
+                bytes2Int(data, 20),
+                ""
+        );
 
         return packet;
     }

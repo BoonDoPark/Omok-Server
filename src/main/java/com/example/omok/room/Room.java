@@ -1,7 +1,7 @@
 package com.example.omok.room;
 
-import com.example.omok.Packet.Packet;
-import com.example.omok.Packet.PacketType;
+import com.example.omok.packet.Packet;
+import com.example.omok.packet.PacketType;
 import com.example.omok.player.Player;
 import com.example.omok.serialize.Serialization;
 
@@ -39,31 +39,34 @@ public class Room {
         ).count() >= 2;
     }
 
-    public boolean isRoomReadyToGame() {
-        return this.status == RoomStatus.WAIT && this.isAllPlayersReady();
+    public boolean isRoomReadyToGame() throws IOException {
+        boolean isReady =  this.status == RoomStatus.WAIT && this.isAllPlayersReady();
+        if(isReady) {
+            this.setStatus(RoomStatus.READY);
+        }
+
+        return isReady;
     }
     
     public void sendOpponentPlayerIds() throws IOException {
-        if (this.status == RoomStatus.READY) {
-            for (Player player : this.getPlayers()) {
-                Player opponentPlayer = this.getPlayers().stream()
-                        .filter(p -> !p.getUserId().equals(player.getUserId()))
-                        .findFirst().orElse(null);
-                if(opponentPlayer != null) {
-                    byte[] opponentPlayerBytes = serialization.serializePacket(
-                            new Packet(
-                                  PacketType.READY,
-                                  0,
-                                  0,
-                                  0,
-                                  0,
-                                  0,
-                                  opponentPlayer.getUserId()
-                            )
-                    );
-                    player.getSocket().getOutputStream().write(opponentPlayerBytes);
-                    player.getSocket().getOutputStream().flush();
-                }
+        for (Player player : this.getPlayers()) {
+            Player opponentPlayer = this.getPlayers().stream()
+                    .filter(p -> !p.getUserId().equals(player.getUserId()))
+                    .findFirst().orElse(null);
+            if(opponentPlayer != null) {
+                byte[] opponentPlayerBytes = serialization.serializePacket(
+                        new Packet(
+                              PacketType.PLAYER_READY,
+                              0,
+                              0,
+                              0,
+                              0,
+                              0,
+                              opponentPlayer.getUserId() // 애만 봄
+                        )
+                );
+                player.getSocket().getOutputStream().write(opponentPlayerBytes);
+                player.getSocket().getOutputStream().flush();
             }
         }
     }
@@ -100,7 +103,7 @@ public class Room {
         this.broadcast(
                 serialization.serializePacket(
                         new Packet(
-                                PacketType.GAMESTART, // 얘만 봄
+                                PacketType.SERVER_SEND_GAMESTART, // 얘만 봄
                                 0,
                                 0,
                                 0,
@@ -128,6 +131,7 @@ public class Room {
         for(Player player : this.players) {
             player.setIsReady(false);
         }
+
         this.setStatus(RoomStatus.WAIT);
     }
 
@@ -179,11 +183,27 @@ public class Room {
     }
 
     public void placeStone(Packet coordinatePacket) {
-        if (this.status == RoomStatus.IN_PROGRESS) {
+        if (this.status != RoomStatus.IN_PROGRESS) {
             return;
         }
         if (this.isPlayerTurn(coordinatePacket.getPlayerColor())) {
-            System.out.println("현재 플레이어의 차례가 아닙니다.");
+            serialization.serializePacket(
+                    new Packet(
+                            PacketType.COORDINATE_FAIL, // 얘만 봄
+                            0,
+                            0, // 얘만 봄
+                            0,
+                            0,
+                            coordinatePacket.getPlayerColor(),
+                            ""
+                    )
+            );
+            return;
+        }
+        if(
+                board[coordinatePacket.getY()][coordinatePacket.getX()] == 0
+                || board[coordinatePacket.getY()][coordinatePacket.getX()] == 1
+        ) {
             return;
         }
         board[coordinatePacket.getY()][coordinatePacket.getX()] = coordinatePacket.getPlayerColor();
@@ -197,7 +217,7 @@ public class Room {
             this.broadcast(
                     serialization.serializePacket(
                         new Packet(
-                               PacketType.DISCRIMINATE, // 얘만 봄
+                               PacketType.SERVER_SEND_DISCRIMINATE, // 얘만 봄
                                 0,
                                 coordinatePacket.getPlayerColor(), // 얘만 봄
                                 0,
@@ -207,6 +227,7 @@ public class Room {
                         )
                     )
             );
+            this.setStatus(RoomStatus.FINISHED);
         }
     }
 
